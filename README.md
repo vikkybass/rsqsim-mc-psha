@@ -67,7 +67,7 @@ cartopy >= 0.20  # For map projections
 
 ```bash
 # Clone repository
-git clone https://github.com/YOUR_USERNAME/rsqsim_mc_psha.git
+git clone https://github.com/vikkybass/rsqsim_mc_psha.git
 cd rsqsim_mc_psha
 
 # Create virtual environment
@@ -84,7 +84,7 @@ pip install -e .
 ### Option 2: Direct Installation
 
 ```bash
-pip install git+https://github.com/YOUR_USERNAME/rsqsim_mc_psha.git
+pip install git+https://github.com/vikkybass/rsqsim_mc_psha.git
 ```
 
 ### Option 3: HPC Cluster Setup
@@ -338,11 +338,11 @@ Contributions are welcome! Please:
 If you use this code in your research, please cite:
 
 ```bibtex
-@software{your_rsqsim_psha,
-  author = {Your Name},
+@software{rsqsim_mc_psha,
+  author = {Victor Olawoyin},
   title = {RSQSim Monte Carlo Probabilistic Seismic Hazard Assessment},
   year = {2025},
-  url = {https://github.com/YOUR_USERNAME/rsqsim_mc_psha}
+  url = {https://github.com/vikkybass/rsqsim_mc_psha}
 }
 ```
 
