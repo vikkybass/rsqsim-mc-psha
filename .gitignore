@@ -1,0 +1,145 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# ============================================================================
+# RSQSim-specific: Large data files (NEVER commit these)
+# ============================================================================
+
+# Raw RSQSim catalog data
+data/Catalog_*/
+data/catalogs/
+data/raw/
+*.catalog
+*.eqsim
+
+# Time windows (these can be regenerated)
+data/windows/**/*.csv
+data/windows/**/*.pkl
+data/windows/**/checkpoint_*.json
+
+# Output files (results, never commit)
+data/output/
+output/
+results/
+
+# Visualizations (can be regenerated)
+visualizations/
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.svg
+!docs/figures/*.png  # Keep documentation figures
+
+# GIS outputs
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+
+# ============================================================================
+# Logs and monitoring
+# ============================================================================
+logs/
+*.log
+*.out
+*.err
+slurm-*.out
+slurm-*.err
+
+# Job tracking
+tracking/
+job_ids.txt
+job_info.txt
+
+# ============================================================================
+# Temporary and cache files
+# ============================================================================
+tmp/
+temp/
+cache/
+*.tmp
+*.cache
+*.swp
+*.swo
+*~
+
+# Scratch space
+scratch/
+
+# ============================================================================
+# HPC/Cluster specific
+# ============================================================================
+.sbatch
+*.sbatch.tmp
+
+# ============================================================================
+# Documentation builds
+# ============================================================================
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# ============================================================================
+# OS specific
+# ============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ============================================================================
+# Configuration files with sensitive data (if any)
+# ============================================================================
+# Uncomment if you have API keys or sensitive configs
+# secrets.py
+# .env
+# credentials.json
+
+# ============================================================================
+# Keep these empty directories (create .gitkeep inside them)
+# ============================================================================
+!data/.gitkeep
+!logs/.gitkeep
+!output/.gitkeep

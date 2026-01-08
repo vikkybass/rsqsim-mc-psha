@@ -1,0 +1,319 @@
+"""
+Los Angeles Region Configuration
+
+Regional-specific configuration that inherits from base config.
+Only contains LA-specific overrides - no redundant settings.
+"""
+
+import os
+from pathlib import Path
+import logging
+import glob
+
+# Import base GMPE configuration
+from configs.config import load_gmpe_config, RSQSIM_WORK_DIR
+
+# Setup logging
+logger = logging.getLogger(__name__)
+
+# ============================================================================
+# REGION-SPECIFIC DATA (Only things unique to Los Angeles)
+# ============================================================================
+
+# Regional polygon for Los Angeles
+LA_POLYGON = [
+    [33.043, -116.303], [32.498, -117.104], [33.577, -117.971],
+    [33.649, -118.429], [33.973, -118.658], [34.328, -119.974],
+    [34.619, -119.974], [34.557, -117.132], [33.043, -116.303]
+]
+
+# Major cities for visualization
+LA_MAJOR_CITIES = {
+    'Los Angeles': (-118.25, 34.05),
+    'Long Beach': (-118.19, 33.77),
+    'Anaheim': (-117.91, 33.84),
+    'Santa Ana': (-117.87, 33.75),
+    'Riverside': (-117.4, 33.95),
+    'San Bernardino': (-117.29, 34.11),
+    'Pasadena': (-118.14, 34.15),
+    'Irvine': (-117.83, 33.68),
+    'Huntington Beach': (-117.99, 33.66),
+    'Glendale': (-118.25, 34.14)
+}
+
+# Example sites (if not using grid)
+LA_EXAMPLE_SITES = [
+    (34.1092, -118.3255),  # Downtown LA
+    (34.1257, -118.1036)   # Pasadena
+]
+
+LA_MAJOR_CITIES_SECOND = [
+    (34.05, -118.25),    # Los Angeles
+    (33.77, -118.19),    # Long Beach
+    (33.84, -117.91),    # Anaheim
+    (33.75, -117.87),    # Santa Ana
+    (33.95, -117.4),     # Riverside
+    (34.11, -117.29),    # San Bernardino
+    (34.15, -118.14),    # Pasadena
+    (33.68, -117.83),    # Irvine
+    (33.66, -117.99),    # Huntington Beach
+    (34.14, -118.25)     # Glendale
+]
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+def get_region_bounds():
+    """Calculate bounding box from regional polygon"""
+    lats = [point[0] for point in LA_POLYGON]
+    lons = [point[1] for point in LA_POLYGON]
+    
+    return {
+        "min_lat": min(lats),
+        "max_lat": max(lats),
+        "min_lon": min(lons),
+        "max_lon": max(lons)
+    }
+
+
+def generate_paths(mode: str = "sequential"):
+    """Generate standardized paths for Los Angeles"""
+    base_output = os.path.join(RSQSIM_WORK_DIR, 'output')
+    
+    return {
+        # Input
+        "windows_dir": f"{RSQSIM_WORK_DIR}/data/Catalog_4983/windows/los_angeles/{mode}",
+        
+        # Output
+        "output_dir": f"{base_output}/los_angeles/{mode}",
+        "log_dir": f"{RSQSIM_WORK_DIR}/logs/los_angeles/{mode}",
+        
+        # Visualizations
+        "viz_dir": f"{base_output}/los_angeles/{mode}/visualizations",
+        "maps_dir": f"{base_output}/los_angeles/{mode}/visualizations/maps",
+        "plots_dir": f"{base_output}/los_angeles/{mode}/visualizations/plots",
+        "gis_dir": f"{base_output}/los_angeles/{mode}/visualizations/gis",
+        
+        # Summary
+        "regional_summary_dir": f"{base_output}/los_angeles/{mode}/regional_summary"
+    }
+
+
+def create_directories(paths: dict):
+    """Create all necessary directories"""
+    essential_dirs = [
+        "output_dir", "log_dir", "viz_dir", 
+        "maps_dir", "plots_dir", "gis_dir", "regional_summary_dir"
+    ]
+    
+    created = []
+    failed = []
+    
+    for key in essential_dirs:
+        if key in paths:
+            try:
+                Path(paths[key]).mkdir(parents=True, exist_ok=True)
+                created.append(paths[key])
+                logger.debug(f"✅ Created: {paths[key]}")
+            except Exception as e:
+                failed.append((paths[key], str(e)))
+                logger.error(f"❌ Failed to create {paths[key]}: {e}")
+    
+    if failed:
+        raise RuntimeError(f"Failed to create {len(failed)} directories")
+    
+    logger.info(f"✅ Created {len(created)} directories")
+    return len(created)
+
+
+def point_in_polygon(lat, lon, polygon):
+    """Check if point is inside polygon using ray casting"""
+    x, y = lon, lat
+    n = len(polygon)
+    inside = False
+    
+    p1x, p1y = polygon[0][1], polygon[0][0]
+    for i in range(1, n + 1):
+        p2x, p2y = polygon[i % n][1], polygon[i % n][0]
+        if y > min(p1y, p2y):
+            if y <= max(p1y, p2y):
+                if x <= max(p1x, p2x):
+                    if p1y != p2y:
+                        xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                    if p1x == p2x or x <= xinters:
+                        inside = not inside
+        p1x, p1y = p2x, p2y
+    
+    return inside
+
+
+def generate_grid_sites(spacing=0.1):
+    """Generate sites within LA polygon"""
+    bounds = get_region_bounds()
+    sites = []
+    
+    lat = bounds['min_lat']
+    while lat <= bounds['max_lat']:
+        lon = bounds['min_lon']
+        while lon <= bounds['max_lon']:
+            if point_in_polygon(lat, lon, LA_POLYGON):
+                sites.append((lat, lon))
+            lon += spacing
+        lat += spacing
+    
+    logger.info(f"Generated {len(sites)} sites with {spacing}° spacing")
+    return sites
+
+
+# ============================================================================
+# Main Configuration Function
+# ============================================================================
+
+def load_config(mode: str = "sequential"):
+    """
+    Load Los Angeles configuration
+    
+    Inherits from base config and only overrides LA-specific settings.
+    
+    Args:
+        mode: Analysis mode ('sequential' or 'random')
+    
+    Returns:
+        dict: Complete configuration for Los Angeles
+    """
+    logger.info(f"🚀 Loading Los Angeles config for {mode} mode")
+    
+    # 1. Load base configuration (contains all GMPE settings, defaults, etc.)
+    base_config = load_gmpe_config()
+    logger.debug("✅ Loaded base GMPE configuration")
+    
+    # 2. Get LA-specific data
+    bounds = get_region_bounds()
+    paths = generate_paths(mode)
+    
+    # 3. Create directories
+    create_directories(paths)
+    
+    # 4. Build LA-specific configuration (ONLY overrides)
+    la_config = {
+        # Regional information
+        "region": {
+            "name": "los_angeles",
+            "pygmm_region": "california",
+            "description": "Los Angeles Basin",
+            "polygon": LA_POLYGON,
+            "bounds": bounds,
+            "mode": mode,
+            "major_cities": LA_MAJOR_CITIES
+        },
+        
+        # Paths (LA-specific)
+        "paths": paths,
+        
+        # Site configuration (LA-specific overrides)
+        "site": {
+            "grid_mode": True,
+            "grid_lat_min": bounds["min_lat"],
+            "grid_lat_max": bounds["max_lat"],
+            "grid_lon_min": bounds["min_lon"],
+            "grid_lon_max": bounds["max_lon"],
+            "grid_lat_spacing": 0.1,
+            "grid_lon_spacing": 0.1,
+            "sites": LA_MAJOR_CITIES_SECOND,
+            "max_distance_km": 300.0,
+            # Inherit vs30, z1p0, scatter settings from base config
+            **{k: v for k, v in base_config["site_defaults"].items() 
+               if k in ["vs30", "z1p0", "z2p5", "include_scatter", "scatter_std_dev"]}
+        },
+        
+        "gmpe": {
+            # Choose one of the options below:
+            
+            # OPTION 1: NSHM 2023 Standard (recommended)
+            "use_ensemble": True,
+            "models": ["ASK14", "BSSA14", "CB14", "CY14"],
+            "ensemble_weights": {
+                "ASK14": 0.25,
+                "BSSA14": 0.25,
+                "CB14": 0.25,
+                "CY14": 0.25
+            },
+            
+            # OPTION 2: Custom 2-model ensemble (uncomment to use)
+            # "use_ensemble": True,
+            # "models": ["CB14", "ASK14"],
+            # "ensemble_weights": {
+            #     "CB14": 0.6,
+            #     "ASK14": 0.4
+            # },
+            
+            # OPTION 3: Single model only (uncomment to use)
+            # "use_ensemble": False,
+            # "models": ["CB14"],
+            # "ensemble_weights": {
+            #     "CB14": 1.0
+            # },
+            
+            # Common settings
+            "default_model": "CB14",
+            "mechanism": "strike-slip",
+        },
+        
+        # Regional analysis (LA-specific)
+        "regional_analysis": {
+            "enabled": True,
+            "multi_window_comparison": True,
+            "statistical_summary": True,
+            "polygon_filtering": True
+        },
+        
+        # Performance (LA-specific if different from base)
+        "resource_limits": {
+            "max_memory_gb": 16,
+            "batch_size": 50,
+            "max_events_per_site": 20000
+        }
+    }
+    
+    # 5. Merge configurations (base + LA overrides)
+    final_config = {**base_config, **la_config}
+    
+    # 6. Quick validation
+    if not os.path.exists(paths["windows_dir"]):
+        logger.warning(f"⚠️  Windows directory not found: {paths['windows_dir']}")
+    else:
+        csv_files = glob.glob(os.path.join(paths["windows_dir"], "*.csv"))
+        logger.info(f"✅ Found {len(csv_files)} window files")
+    
+    # 7. Log GMPE configuration
+    gmpe_cfg = final_config.get('gmpe', {})
+    if gmpe_cfg.get('use_ensemble'):
+        logger.info(f"📊 Using ensemble: {gmpe_cfg.get('models')}")
+        logger.info(f"   Weights: {gmpe_cfg.get('ensemble_weights')}")
+    else:
+        logger.info(f"📊 Using single model: {gmpe_cfg.get('default_model')}")
+    
+    logger.info(f"✅ Los Angeles configuration loaded for {mode} mode")
+    return final_config
+
+# ============================================================================
+# Testing
+# ============================================================================
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    
+    print("Los Angeles Configuration")
+    print("=" * 60)
+    
+    # Test loading
+    config = load_config("sequential")
+    
+    print(f"\n✅ Configuration loaded successfully:")
+    print(f"   Region: {config['region']['name']}")
+    print(f"   Mode: {config['region']['mode']}")
+    print(f"   GMPE Model: {config['gmpe']['default_model']}")  # Inherited from base
+    print(f"   Output: {config['paths']['output_dir']}")
+    print(f"   Grid sites: {len(generate_grid_sites(0.1))}")

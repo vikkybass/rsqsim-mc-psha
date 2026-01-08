@@ -1,0 +1,179 @@
+"""
+Single Site Full California Test Configuration
+Tests with just Los Angeles to verify the code works with 397K events
+"""
+
+import os
+from pathlib import Path
+
+# Import base GMPE configuration
+from configs.config import load_gmpe_config
+
+# Get environment variables
+RSQSIM_HOME = os.environ.get('RSQSIM_HOME', str(Path.home() / 'rsqsim_mc'))
+RSQSIM_WORK_DIR = os.environ.get('RSQSIM_WORK_DIR', '/scratch/olawoyiv/rsqsim_data')
+RSQSIM_PROJECT_DIR = os.environ.get('RSQSIM_PROJECT_DIR', '/projects/ebelseismo/olawoyiv')
+
+def load_config():
+    """
+    Load Single Site Full California configuration for testing
+    
+    Returns:
+        dict: Complete configuration for single site test
+    """
+    
+    # Get base GMPE configuration
+    base_config = load_gmpe_config()
+    
+    # Single site Full California configuration
+    ca_config = {
+        "region": {
+            "name": "Full_california",
+            "description": "Single site test with Full California catalog (397K events)",
+            "bounds": {
+                "min_lat": 32.0,
+                "max_lat": 42.0,
+                "min_lon": -125.0,
+                "max_lon": -114.0
+            }
+        },
+        
+        "paths": {
+            "project_root": Path(RSQSIM_HOME),
+            "gmpe_config": str(Path(RSQSIM_HOME) / "configs" / "config.py"),
+            
+            # Full California windows directory
+            "windows_dir": f"{RSQSIM_WORK_DIR}/data/Catalog_4983/windows/Full_california/sequential",
+            "output_dir": f"{RSQSIM_WORK_DIR}/output/Full_california/single_site_test", 
+            "log_dir": f"{RSQSIM_WORK_DIR}/logs/Full_california/single_site",
+            
+            # Backup directories
+            "backup_dir": f"{RSQSIM_PROJECT_DIR}/rsqsim_results/Full_california/single_site",
+            "archive_dir": f"{RSQSIM_PROJECT_DIR}/rsqsim_archive/Full_california/single_site",
+        },
+        
+        "site": {
+            # SINGLE SITE MODE - much faster!
+            "grid_mode": False,           # KEY: Use individual sites, not grid
+            
+            # Test sites (start with just LA)
+            "sites": [
+                (34.05, -118.25),  # Los Angeles - near San Andreas, Hollywood faults
+                # (37.77, -122.42),  # San Francisco - near Hayward, San Andreas
+                # (32.72, -117.16),  # San Diego - near Rose Canyon fault
+            ],
+            
+            # Site parameters
+            "vs30": base_config["site_defaults"]["vs30"],
+            "z1p0": base_config["site_defaults"]["z1p0"],
+            "gmpe_model": base_config["site_defaults"]["gmpe_model"],
+            "default_period": base_config["site_defaults"]["default_period"],
+            "include_scatter": base_config["site_defaults"]["include_scatter"],
+            "scatter_std_dev": base_config["site_defaults"]["scatter_std_dev"],
+            
+            # Ground motion settings - optimized for large catalog
+            "min_ground_motion": 0.001,  # Start with 0.001g
+            "max_distance_km": 300.0     # 300km radius around LA
+        }
+    }
+    
+    # Merge base config with CA-specific config
+    final_config = base_config.copy()
+    final_config.update(ca_config)
+    
+    # Create necessary directories
+    os.makedirs(final_config["paths"]["output_dir"], exist_ok=True)
+    os.makedirs(final_config["paths"]["log_dir"], exist_ok=True)
+    
+    return final_config
+
+def validate_config():
+    """Validate the single site configuration"""
+    config = load_config()
+    issues = []
+    
+    # Check single site mode
+    if config["site"]["grid_mode"]:
+        issues.append("Should use grid_mode=False for single site test")
+    
+    if not config["site"]["sites"]:
+        issues.append("No sites specified for single site test")
+    
+    # Check windows directory exists
+    windows_dir = config["paths"]["windows_dir"]
+    if not os.path.exists(windows_dir):
+        issues.append(f"Windows directory not found: {windows_dir}")
+    else:
+        # Check for CSV files
+        import glob
+        csv_files = glob.glob(os.path.join(windows_dir, "*.csv"))
+        if not csv_files:
+            issues.append(f"No CSV files found in: {windows_dir}")
+        else:
+            print(f"✅ Found {len(csv_files)} window files")
+    
+    # Check GMPE files
+    model = config["site"]["gmpe_model"]
+    if model in config["gmpe_files"]:
+        gmpe_file = config["gmpe_files"][model]
+        if gmpe_file and not os.path.exists(gmpe_file):
+            issues.append(f"GMPE coefficient file missing: {gmpe_file}")
+    
+    if issues:
+        print("Single site configuration validation issues:")
+        for issue in issues:
+            print(f"  ❌ {issue}")
+        return False
+    
+    print("✅ Single site configuration validation passed")
+    return True
+
+def preview_expected_results():
+    """Show what we expect from single site test"""
+    
+    print("\n📊 EXPECTED RESULTS FOR LOS ANGELES SINGLE SITE:")
+    print("="*60)
+    print("📍 Site: Los Angeles (34.05°N, -118.25°W)")
+    print("📁 Catalog: 397K events from Full California")
+    print("🎯 Processing time: 5-15 minutes (much faster than grid)")
+    print()
+    print("Expected event filtering:")
+    print("  🌍 Events within 300km of LA: ~50,000-150,000 events")
+    print("  ⚡ Events above 0.001g threshold: ~10,000-50,000 events")
+    print("  📈 Event retention rate: 10-40% (should be >0%!)")
+    print()
+    print("Expected ground motions:")
+    print("  🏔️  M6+ events <50km: Strong shaking (>0.01g)")
+    print("  🌊 M5+ events 50-150km: Moderate shaking (0.001-0.01g)")
+    print("  📉 M5 events >200km: Light shaking (0.0001-0.001g)")
+    print()
+    print("Success criteria:")
+    print("  ✅ Event retention > 0% (not all filtered out)")
+    print("  ✅ Hazard curve generated with multiple points")
+    print("  ✅ Ground motions in realistic range")
+
+# For testing/debugging
+if __name__ == "__main__":
+    print("Full California Single Site Test Configuration")
+    print("=" * 60)
+    
+    # Load and validate configuration
+    config = load_config()
+    is_valid = validate_config()
+    
+    print(f"\nConfiguration valid: {is_valid}")
+    print(f"Region: {config['region']['name']}")
+    print(f"Mode: Single site (not grid)")
+    print(f"Test site: {config['site']['sites'][0]}")
+    print(f"Windows directory: {config['paths']['windows_dir']}")
+    print(f"Output directory: {config['paths']['output_dir']}")
+    
+    # Show expected results
+    preview_expected_results()
+    
+    if is_valid:
+        print(f"\n🚀 READY TO RUN:")
+        print(f"python scripts/run_mc.py --region Full_california_single --mode sequential --pattern \"*0001*.csv\" --log-level INFO")
+        print(f"\nThis will test just Los Angeles with 397K events!")
+    else:
+        print(f"\n❌ Fix validation issues first")
