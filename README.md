@@ -361,7 +361,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Victor - Boston College, Earth and Environmental Sciences
 
-Project Link: [https://github.com/YOUR_USERNAME/rsqsim_mc_psha](https://github.com/YOUR_USERNAME/rsqsim_mc_psha)
+Project Link: [https://github.com/vikkybass/rsqsim_mc_psha](https://github.com/vikkybass/rsqsim_mc_psha)
 
 ---
 
