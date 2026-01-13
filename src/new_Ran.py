@@ -831,7 +831,7 @@ def calculate_hazard_values_c_style(synthetic_events, site_lat, site_lon, syndur
         lambda_values = []
         hazval = []
         
-        for i in range(10):
+        for i in range(40):
             # Proper log-space distribution
             log_gm = log_gmmin + (gminc * i)
             gm_threshold = math.pow(10, log_gm)
@@ -2016,10 +2016,59 @@ def probability_to_return_period(prob_key):
 
 def calculate_probabilities(lambda_values, gm_thresholds, output_settings):
     """
-    Calculate probability values based on lambda rates and output settings
+    Calculate probability values using C-style semi-log interpolation with extrapolation
+    
+    CRITICAL FIX: Uses log10(probability) for interpolation, not linear rate.
+    This matches the original C code behavior from Ran_Haz.c lines 897-904.
+    NOW WITH EXTRAPOLATION for rare events (2% in 50yr).
+    
+    Args:
+        lambda_values: Annual exceedance rates (from hazard curve)
+        gm_thresholds: Ground motion values (g) corresponding to rates
+        output_settings: Dictionary with probability_type and probabilities
+        
+    Returns:
+        dict: Dictionary mapping probability keys to interpolated GM values
     """
     probabilities = {}
     
+    # Convert lambda values (rates) to annual probabilities
+    # P(exceed) = 1 - exp(-lambda)
+    hazval = np.array([1 - np.exp(-rate) if rate > 0 else 0 for rate in lambda_values])
+    hazgm = np.array(gm_thresholds)
+    
+    # Validate inputs
+    if len(hazval) == 0 or len(hazgm) == 0:
+        logger.warning("Empty hazard curve data")
+        return probabilities
+    
+    if len(hazval) != len(hazgm):
+        logger.error(f"Hazard curve length mismatch: {len(hazval)} rates vs {len(hazgm)} GMs")
+        return probabilities
+    
+    # Remove invalid values (zero, negative, or non-finite)
+    valid_mask = (hazval > 0) & np.isfinite(hazval) & (hazgm > 0) & np.isfinite(hazgm)
+    
+    if not np.any(valid_mask):
+        logger.warning("No valid hazard curve points")
+        return probabilities
+    
+    hazval = hazval[valid_mask]
+    hazgm = hazgm[valid_mask]
+    
+    # Ensure descending order (high prob → low prob)
+    # This matches C code which has hazval[0] > hazval[9]
+    sort_idx = np.argsort(hazval)[::-1]  # Descending
+    hazval = hazval[sort_idx]
+    hazgm = hazgm[sort_idx]
+    
+    logger.debug(f"Hazard curve: {len(hazval)} points")
+    logger.debug(f"  Prob range: {hazval.min():.6f} to {hazval.max():.6f}")
+    logger.debug(f"  GM range: {hazgm.min():.4f}g to {hazgm.max():.4f}g")
+    
+    # =========================================================================
+    # Process annual probabilities
+    # =========================================================================
     if output_settings.get("probability_type") == "annual":
         prob_list = output_settings.get("probabilities", [])
         
@@ -2033,141 +2082,267 @@ def calculate_probabilities(lambda_values, gm_thresholds, output_settings):
             else:
                 continue
             
-            # Convert probability to rate using correct Poisson relationship
-            if target_prob >= 0.999:
-                logger.warning(f"Probability {target_prob} too close to 1.0, skipping")
-                continue
-                
-            target_rate = -math.log(1 - target_prob)
+            # C-STYLE INTERPOLATION WITH EXTRAPOLATION
+            gm_interp = interpolate_c_style(hazgm, hazval, target_prob, allow_extrapolation=True)
             
-            # Convert to numpy arrays
-            lambda_array = np.array(lambda_values)
-            gm_array = np.array(gm_thresholds)
-            
-            # Filter valid data points
-            valid_mask = (lambda_array > 1e-12) & (lambda_array < 100) & np.isfinite(lambda_array)
-            if not np.any(valid_mask):
-                logger.warning(f"No valid rates for probability {target_prob}")
-                continue
-                
-            gm_valid = gm_array[valid_mask]
-            rate_valid = lambda_array[valid_mask]
-            
-            # Check if target rate is within achievable bounds
-            rate_min, rate_max = np.min(rate_valid), np.max(rate_valid)
-            
-            if target_rate < rate_min:
-                logger.debug(f"Target rate {target_rate:.6f} below minimum achievable {rate_min:.6f} for P={target_prob}")
-                continue
-            elif target_rate > rate_max:
-                logger.debug(f"Target rate {target_rate:.6f} above maximum achievable {rate_max:.6f} for P={target_prob}")
-                continue
-            
-            # CRITICAL FIX: Proper interpolation setup
-            # Sort by GM ascending (which gives rates descending)
-            sort_idx = np.argsort(gm_valid)  # Sort by GM ascending
-            gm_sorted = gm_valid[sort_idx]   # GM: [low ... high]
-            rate_sorted = rate_valid[sort_idx]  # Rate: [high ... low]
-            
-            # For np.interp to work, the x-values (rates) must be ascending
-            # So we need to reverse both arrays
-            rate_ascending = rate_sorted[::-1]  # Rate: [low ... high] 
-            gm_ascending = gm_sorted[::-1]      # GM: [high ... low]
-            
-            # Now interpolate with ascending rates
-            gm_interp = np.interp(target_rate, rate_ascending, gm_ascending)
-            probabilities[f"annual_{key_suffix}"] = float(gm_interp)
-            
-            # Optional verification for debugging
-            if logger.isEnabledFor(logging.DEBUG):
-                # Verify the result
-                rate_check = np.interp(gm_interp, gm_sorted, rate_sorted)
-                actual_prob = 1 - math.exp(-rate_check)
-                error = abs(actual_prob - target_prob)
-                logger.debug(f"P={target_prob}: GM={gm_interp:.6f}g, actual_P={actual_prob:.6f}, error={error:.6f}")
+            if gm_interp is not None:
+                probabilities[f"annual_{key_suffix}"] = float(gm_interp)
+                logger.debug(f"Annual P={target_prob:.6f} → GM={gm_interp:.4f}g")
     
-    # CHANGE TO (CORRECT CONVERSION):
+    # =========================================================================
+    # Process non-exceedance probabilities (e.g., 2% in 50yr)
+    # =========================================================================
     elif output_settings.get("probability_type") == "non_exceedance":
         prob_list = output_settings.get("probabilities", [])
         
         for prob_entry in prob_list:
-            if isinstance(prob_entry, (list, tuple)) and len(prob_entry) >= 2:
-                time_period, non_exceed_prob = prob_entry[0], prob_entry[1]
-                
-                # Convert non-exceedance to exceedance probability
-                exceed_prob = 1 - non_exceed_prob  # ✅ CORRECT: 0.98 non-exceed → 0.02 exceed
-                
-                if exceed_prob <= 0.001:  # Skip very small probabilities
-                    continue
-                    
-                # Convert exceedance probability to annual rate
-                annual_prob = 1 - (1 - exceed_prob)**(1/time_period)
-                target_rate = -math.log(1 - annual_prob)
-
-                # Same interpolation logic as above
-                lambda_array = np.array(lambda_values)
-                gm_array = np.array(gm_thresholds)
-                
-                valid_mask = (lambda_array > 1e-12) & (lambda_array < 100) & np.isfinite(lambda_array)
-                if not np.any(valid_mask):
-                    continue
-                    
-                gm_valid = gm_array[valid_mask]
-                rate_valid = lambda_array[valid_mask]
-                
-                rate_min, rate_max = np.min(rate_valid), np.max(rate_valid)
-                
-                if rate_min <= target_rate <= rate_max:
-                    # Same fix as above
-                    sort_idx = np.argsort(gm_valid)
-                    gm_sorted = gm_valid[sort_idx]
-                    rate_sorted = rate_valid[sort_idx]
-                    
-                    rate_ascending = rate_sorted[::-1]
-                    gm_ascending = gm_sorted[::-1]
-                    
-                    gm_interp = np.interp(target_rate, rate_ascending, gm_ascending)
-                    probabilities[f"non_exceed_{time_period}yr_{non_exceed_prob}"] = float(gm_interp)
-
+            if not (isinstance(prob_entry, (list, tuple)) and len(prob_entry) >= 2):
+                continue
+            
+            time_period, non_exceed_prob = prob_entry[0], prob_entry[1]
+            
+            # Convert non-exceedance to exceedance probability
+            exceed_prob = 1 - non_exceed_prob
+            
+            if exceed_prob <= 0.001:
+                logger.debug(f"Skipping very small probability: {exceed_prob:.6f}")
+                continue
+            
+            # Convert to annual exceedance probability
+            # P_annual = 1 - (1 - P_T)^(1/T)
+            annual_prob = 1 - (1 - exceed_prob)**(1/time_period)
+            
+            logger.debug(
+                f"{exceed_prob*100:.1f}% in {time_period}yr → "
+                f"annual P={annual_prob:.6f}"
+            )
+            
+            # C-STYLE INTERPOLATION WITH EXTRAPOLATION
+            gm_interp = interpolate_c_style(hazgm, hazval, annual_prob, allow_extrapolation=True)
+            
+            if gm_interp is not None:
+                key = f"non_exceed_{time_period}yr_{non_exceed_prob}"
+                probabilities[key] = float(gm_interp)
+                logger.debug(
+                    f"{exceed_prob*100:.1f}% in {time_period}yr → GM={gm_interp:.4f}g"
+                )
+    
+    # =========================================================================
+    # Process exceedance probabilities
+    # =========================================================================
     elif output_settings.get("probability_type") == "exceedance":
         prob_list = output_settings.get("probabilities", [])
         
         for prob_entry in prob_list:
-            if isinstance(prob_entry, tuple) and len(prob_entry) >= 2:
-                time_period, exceed_prob = prob_entry[0], prob_entry[1]
-                
-                if exceed_prob <= 0.001:  # Skip very small probabilities
-                    continue
-                    
-                # Convert exceedance probability directly to annual rate
-                annual_prob = 1 - math.pow(1 - exceed_prob, 1/time_period)
-                target_rate = -math.log(1 - annual_prob)
-                
-                # Same interpolation logic as above
-                lambda_array = np.array(lambda_values)
-                gm_array = np.array(gm_thresholds)
-                
-                valid_mask = (lambda_array > 1e-12) & (lambda_array < 100) & np.isfinite(lambda_array)
-                if not np.any(valid_mask):
-                    continue
-                    
-                gm_valid = gm_array[valid_mask]
-                rate_valid = lambda_array[valid_mask]
-                
-                rate_min, rate_max = np.min(rate_valid), np.max(rate_valid)
-                
-                if rate_min <= target_rate <= rate_max:
-                    sort_idx = np.argsort(gm_valid)
-                    gm_sorted = gm_valid[sort_idx]
-                    rate_sorted = rate_valid[sort_idx]
-                    
-                    rate_ascending = rate_sorted[::-1]
-                    gm_ascending = gm_sorted[::-1]
-                    
-                    gm_interp = np.interp(target_rate, rate_ascending, gm_ascending)
-                    probabilities[f"exceed_{time_period}yr_{exceed_prob}"] = float(gm_interp)
-                    
+            if not (isinstance(prob_entry, tuple) and len(prob_entry) >= 2):
+                continue
+            
+            time_period, exceed_prob = prob_entry[0], prob_entry[1]
+            
+            if exceed_prob <= 0.001:
+                continue
+            
+            # Convert to annual probability
+            annual_prob = 1 - math.pow(1 - exceed_prob, 1/time_period)
+            
+            # C-STYLE INTERPOLATION WITH EXTRAPOLATION
+            gm_interp = interpolate_c_style(hazgm, hazval, annual_prob, allow_extrapolation=True)
+            
+            if gm_interp is not None:
+                key = f"exceed_{time_period}yr_{exceed_prob}"
+                probabilities[key] = float(gm_interp)
+    
     return probabilities
+
+
+def interpolate_c_style(hazgm, hazval, target_prob, allow_extrapolation=True):
+    """
+    C-style semi-log interpolation with optional extrapolation
+    
+    Interpolates in semi-log space:
+    - X-axis: log10(probability)
+    - Y-axis: linear ground motion
+    
+    Args:
+        hazgm: Ground motion values (must be in DESCENDING order by hazval)
+        hazval: Annual probability values (must be DESCENDING: high → low)
+        target_prob: Target probability to interpolate
+        allow_extrapolation: If True, extrapolate beyond bounds using power law
+        
+    Returns:
+        float: Interpolated/extrapolated ground motion value, or None if failed
+    """
+    # Find bracketing indices (same logic as C code)
+    j = 0
+    while j < len(hazval) and target_prob < hazval[j]:
+        j += 1
+    
+    # =========================================================================
+    # EXTRAPOLATION: Handle out-of-bounds cases
+    # =========================================================================
+    
+    # Case 1: Target probability HIGHER than maximum (rare)
+    if j == 0:
+        if not allow_extrapolation:
+            logger.debug(f"Target {target_prob:.6f} > max hazval {hazval[0]:.6f}")
+            return None
+        
+        # Extrapolate upward using first 3 points
+        logger.debug(f"Extrapolating above curve: P={target_prob:.6f} > P_max={hazval[0]:.6f}")
+        return extrapolate_power_law(hazgm[:3], hazval[:3], target_prob, direction='high')
+    
+    # Case 2: Target probability LOWER than minimum (common for 2% in 50yr)
+    if j >= len(hazval):
+        if not allow_extrapolation:
+            logger.debug(f"Target {target_prob:.6f} < min hazval {hazval[-1]:.6f}")
+            return None
+        
+        # Extrapolate downward using last 3 points
+        logger.debug(f"Extrapolating below curve: P={target_prob:.6f} < P_min={hazval[-1]:.6f}")
+        return extrapolate_power_law(hazgm[-3:], hazval[-3:], target_prob, direction='low')
+    
+    # =========================================================================
+    # INTERPOLATION: Target is within bounds
+    # =========================================================================
+    
+    try:
+        # Compute in log10 space for probabilities
+        log_hazval_j = math.log10(max(hazval[j], 1e-10))
+        log_hazval_j_minus_1 = math.log10(max(hazval[j-1], 1e-10))
+        log_target_prob = math.log10(max(target_prob, 1e-10))
+        
+        # Semi-log slope: LINEAR GM / LOG10 PROB
+        delthaz = (hazgm[j] - hazgm[j-1]) / (log_hazval_j - log_hazval_j_minus_1)
+        
+        # Interpolate
+        gm_interp = (log_target_prob - log_hazval_j_minus_1) * delthaz + hazgm[j-1]
+        
+        logger.debug(
+            f"Interpolated between points {j-1} and {j}: "
+            f"P=[{hazval[j-1]:.6f}, {hazval[j]:.6f}], "
+            f"GM=[{hazgm[j-1]:.4f}, {hazgm[j]:.4f}]g → {gm_interp:.4f}g"
+        )
+        
+        return float(gm_interp)
+        
+    except (ValueError, ZeroDivisionError) as e:
+        logger.error(f"Interpolation error: {e}")
+        return None
+
+
+def extrapolate_power_law(gm_points, prob_points, target_prob, direction='low'):
+    """
+    Extrapolate using power law fit in log-log space
+    
+    Hazard curves typically follow: log(GM) = a + b*log(P)
+    
+    Args:
+        gm_points: 3+ ground motion values (array)
+        prob_points: 3+ probability values (array)
+        target_prob: Target probability to extrapolate to
+        direction: 'low' (rare events) or 'high' (common events)
+        
+    Returns:
+        float: Extrapolated ground motion value
+    """
+    gm_points = np.array(gm_points)
+    prob_points = np.array(prob_points)
+    
+    # Filter out zeros and invalid values
+    valid = (gm_points > 0) & (prob_points > 0) & np.isfinite(gm_points) & np.isfinite(prob_points)
+    gm_points = gm_points[valid]
+    prob_points = prob_points[valid]
+    
+    if len(gm_points) < 2:
+        logger.warning("Not enough points for extrapolation")
+        return None
+    
+    try:
+        # Fit in log-log space: log(GM) = a + b*log(P)
+        log_gm = np.log10(gm_points)
+        log_prob = np.log10(prob_points)
+        
+        # Linear regression
+        coeffs = np.polyfit(log_prob, log_gm, deg=1)
+        slope = coeffs[0]
+        intercept = coeffs[1]
+        
+        # Extrapolate
+        log_target_prob = np.log10(max(target_prob, 1e-10))
+        log_gm_extrap = slope * log_target_prob + intercept
+        gm_extrap = 10**log_gm_extrap
+        
+        # Compute R² for quality check
+        log_gm_pred = slope * log_prob + intercept
+        ss_res = np.sum((log_gm - log_gm_pred)**2)
+        ss_tot = np.sum((log_gm - np.mean(log_gm))**2)
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+        
+        logger.debug(
+            f"Power law extrapolation ({direction}): "
+            f"P={target_prob:.6e} → GM={gm_extrap:.4f}g "
+            f"(slope={slope:.3f}, R²={r_squared:.3f})"
+        )
+        
+        # Sanity check: Don't extrapolate too far
+        if direction == 'low':
+            # For rare events (2% in 50yr), be MUCH more conservative
+            
+            # Limit 1: Maximum 1.5x the last observed GM (was 2.5x)
+            max_factor = 1.5
+            max_allowed = gm_points[-1] * max_factor
+            
+            # Limit 2: Check how far we're extrapolating
+            prob_ratio = prob_points[-1] / target_prob
+            if prob_ratio > 10:
+                # Extrapolating more than 1 order of magnitude - be very conservative
+                max_factor = 1.3
+                max_allowed = gm_points[-1] * max_factor
+                logger.warning(
+                    f"Extrapolating {prob_ratio:.1f}x beyond data, "
+                    f"using conservative limit {max_factor}x"
+                )
+            
+            # Limit 3: Check fit quality
+            if r_squared < 0.90:
+                # Poor fit - be even more conservative
+                max_factor = 1.2
+                max_allowed = gm_points[-1] * max_factor
+                logger.warning(
+                    f"Poor extrapolation fit (R²={r_squared:.3f}), "
+                    f"using very conservative limit {max_factor}x"
+                )
+            
+            # Apply limit
+            if gm_extrap > max_allowed:
+                logger.warning(
+                    f"Extrapolation too large ({gm_extrap:.3f}g from {gm_points[-1]:.3f}g), "
+                    f"capping at {max_allowed:.3f}g (ratio={gm_extrap/gm_points[-1]:.2f}x → {max_factor}x)"
+                )
+                gm_extrap = max_allowed
+        
+        elif direction == 'high':
+            # For common events, limit to 0.5x the first observed GM
+            min_allowed = gm_points[0] * 0.7
+            if gm_extrap < min_allowed:
+                logger.warning(
+                    f"Extrapolation too small ({gm_extrap:.3f}g), "
+                    f"flooring at {min_allowed:.3f}g"
+                )
+                gm_extrap = min_allowed
+        logger.debug(
+            f"Power law extrapolation ({direction}): "
+            f"P={target_prob:.6e} → GM={gm_extrap:.4f}g "
+            f"(slope={slope:.3f}, R²={r_squared:.3f}, "
+            f"ratio={gm_extrap/gm_points[-1]:.2f}x)"
+        )
+        
+        return float(gm_extrap)
+        
+    except Exception as e:
+        logger.error(f"Extrapolation failed: {e}")
+        return None
+
   
 def plot_hazard_curves(site_results, output_dir, config):
     """

@@ -1,338 +1,115 @@
 """
-Enhanced San Francisco Configuration with Visualization Options
+San Francisco Region Configuration
 
-San Francisco Bay Area using exact polygon + Visualizations
+Regional-specific configuration that inherits from base config.
+Only contains SF-specific overrides - no redundant settings.
 """
 
 import os
 from pathlib import Path
-import numpy as np
 import logging
+import glob
 
-# Import base GMPE configuration AND environment variables
-from configs.config import load_gmpe_config, RSQSIM_HOME, RSQSIM_WORK_DIR, RSQSIM_PROJECT_DIR
-
+# Import base GMPE configuration
+from configs.config import load_gmpe_config, RSQSIM_WORK_DIR
 
 # Setup logging
 logger = logging.getLogger(__name__)
 
-# EXACT regional polygons used for catalog filtering
-REGIONAL_POLYGONS = {
-    'san_francisco': {
-        'region_polygon': [
-            [36.890, -121.148], [36.546, -121.422], [36.535, -122.099],
-            [38.489, -123.207], [38.652, -123.090], [38.692, -122.243],
-            [38.987, -121.344], [38.376, -121.005], [37.503, -121.461],
-            [36.859, -121.135], [36.890, -121.148]
-        ]
-    }
+# ============================================================================
+# REGION-SPECIFIC DATA (Only things unique to San Francisco)
+# ============================================================================
+
+# Regional polygon for San Francisco
+SF_POLYGON = [
+    [36.890, -121.148], [36.546, -121.422], [36.535, -122.099],
+    [38.489, -123.207], [38.652, -123.090], [38.692, -122.243],
+    [38.987, -121.344], [38.376, -121.005], [37.503, -121.461],
+    [36.859, -121.135], [36.890, -121.148]
+]
+
+# Major cities for visualization
+SF_MAJOR_CITIES = {
+    'San Francisco': (-122.4194, 37.7749),
+    'Oakland': (-122.2711, 37.8044),
+    'San Jose': (-121.8863, 37.3382),
+    'Fremont': (-121.9886, 37.5483),
+    'Santa Rosa': (-122.7141, 38.4405)
 }
 
-def get_region_bounds(region_name):
-    """Calculate bounding box from the exact regional polygon"""
-    if region_name not in REGIONAL_POLYGONS:
-        raise ValueError(f"Region '{region_name}' not found. Available regions: {list(REGIONAL_POLYGONS.keys())}")
-    
-    polygon = REGIONAL_POLYGONS[region_name]['region_polygon']
-    lats = [point[0] for point in polygon]
-    lons = [point[1] for point in polygon]
+# Example sites (if not using grid)
+SF_EXAMPLE_SITES = [
+    (37.7749, -122.4194),  # San Francisco
+    (37.8044, -122.2711)   # Oakland
+]
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+def get_region_bounds():
+    """Calculate bounding box from regional polygon"""
+    lats = [point[0] for point in SF_POLYGON]
+    lons = [point[1] for point in SF_POLYGON]
     
     return {
         "min_lat": min(lats),
         "max_lat": max(lats),
         "min_lon": min(lons),
-        "max_lon": max(lons),
-        "polygon": polygon
+        "max_lon": max(lons)
     }
 
-def generate_standardized_paths(region_name: str, mode: str = "sequential"):
-    """Generate standardized paths for any region configuration"""
-    
+
+def generate_paths(mode: str = "sequential"):
+    """Generate standardized paths for San Francisco"""
     base_output = os.path.join(RSQSIM_WORK_DIR, 'output')
     
     return {
-        "project_root": Path(RSQSIM_HOME),
-        "gmpe_config": str(Path(RSQSIM_HOME) / "configs" / "config.py"),
+        # Input
+        "windows_dir": f"{RSQSIM_WORK_DIR}/data/Catalog_4983/windows/san_francisco/{mode}",
         
-        # STANDARDIZED DATA DIRECTORIES
-        "windows_dir": f"{RSQSIM_WORK_DIR}/data/Catalog_4983/windows/{region_name}/{mode}",
+        # Output
+        "output_dir": f"{base_output}/san_francisco/{mode}",
+        "log_dir": f"{RSQSIM_WORK_DIR}/logs/san_francisco/{mode}",
         
-        # FIXED: Proper output directory structure
-        "output_dir": f"{base_output}/{region_name}/{mode}",
-        "log_dir": f"{RSQSIM_WORK_DIR}/logs/{region_name}/{mode}",
+        # Visualizations
+        "viz_dir": f"{base_output}/san_francisco/{mode}/visualizations",
+        "maps_dir": f"{base_output}/san_francisco/{mode}/visualizations/maps",
+        "plots_dir": f"{base_output}/san_francisco/{mode}/visualizations/plots",
+        "gis_dir": f"{base_output}/san_francisco/{mode}/visualizations/gis",
         
-        # STANDARDIZED BACKUP DIRECTORIES
-        "backup_dir": f"{RSQSIM_PROJECT_DIR}/rsqsim_results/{region_name}/{mode}",
-        "archive_dir": f"{RSQSIM_PROJECT_DIR}/rsqsim_archive/{region_name}/{mode}",
-        
-        # STANDARDIZED VISUALIZATION DIRECTORIES
-        "viz_dir": f"{base_output}/{region_name}/{mode}/visualizations",
-        "maps_dir": f"{base_output}/{region_name}/{mode}/visualizations/maps",
-        "plots_dir": f"{base_output}/{region_name}/{mode}/visualizations/plots",
-        "gis_dir": f"{base_output}/{region_name}/{mode}/visualizations/gis",
-        
-        # REGIONAL SUMMARY DIRECTORY
-        "regional_summary_dir": f"{base_output}/{region_name}/{mode}/regional_summary"
+        # Summary
+        "regional_summary_dir": f"{base_output}/san_francisco/{mode}/regional_summary"
     }
 
-def create_standardized_directories(paths: dict, force_create: bool = True):
-    """
-    Create all standardized directories with comprehensive error handling
-    
-    Args:
-        paths: Dictionary of paths to create
-        force_create: If True, create directories even if they exist
-    
-    Returns:
-        tuple: (success_count, failed_directories)
-    """
-    
-    # Essential directories that MUST be created
+
+def create_directories(paths: dict):
+    """Create all necessary directories"""
     essential_dirs = [
-        paths.get("output_dir"),
-        paths.get("log_dir"), 
-        paths.get("viz_dir"),
-        paths.get("maps_dir"),
-        paths.get("plots_dir"),
-        paths.get("gis_dir"),
-        paths.get("regional_summary_dir")
+        "output_dir", "log_dir", "viz_dir", 
+        "maps_dir", "plots_dir", "gis_dir", "regional_summary_dir"
     ]
     
-    # Optional directories (create if possible, but don't fail if not)
-    optional_dirs = [
-        paths.get("backup_dir"),
-        paths.get("archive_dir")
-    ]
+    created = []
+    failed = []
     
-    # Filter out None values
-    essential_dirs = [d for d in essential_dirs if d is not None]
-    optional_dirs = [d for d in optional_dirs if d is not None]
+    for key in essential_dirs:
+        if key in paths:
+            try:
+                Path(paths[key]).mkdir(parents=True, exist_ok=True)
+                created.append(paths[key])
+                logger.debug(f"✅ Created: {paths[key]}")
+            except Exception as e:
+                failed.append((paths[key], str(e)))
+                logger.error(f"❌ Failed to create {paths[key]}: {e}")
     
-    created_dirs = []
-    failed_dirs = []
+    if failed:
+        raise RuntimeError(f"Failed to create {len(failed)} directories")
     
-    logger.info(f"🏗️  Creating {len(essential_dirs)} essential directories...")
-    
-    # Create essential directories
-    for dir_path in essential_dirs:
-        try:
-            Path(dir_path).mkdir(parents=True, exist_ok=True, mode=0o755)
-            created_dirs.append(dir_path)
-            logger.debug(f"✅ Created essential: {dir_path}")
-        except PermissionError as e:
-            failed_dirs.append((dir_path, f"Permission denied: {e}"))
-            logger.error(f"❌ Permission denied creating {dir_path}: {e}")
-        except Exception as e:
-            failed_dirs.append((dir_path, str(e)))
-            logger.error(f"❌ Failed to create {dir_path}: {e}")
-    
-    # Create optional directories (don't fail if these can't be created)
-    logger.debug(f"🔧 Creating {len(optional_dirs)} optional directories...")
-    for dir_path in optional_dirs:
-        try:
-            Path(dir_path).mkdir(parents=True, exist_ok=True, mode=0o755)
-            created_dirs.append(dir_path)
-            logger.debug(f"✅ Created optional: {dir_path}")
-        except Exception as e:
-            logger.warning(f"⚠️  Could not create optional directory {dir_path}: {e}")
-            # Don't add to failed_dirs since these are optional
-    
-    # Log summary
-    if failed_dirs:
-        logger.error(f"❌ Failed to create {len(failed_dirs)} essential directories:")
-        for path, error in failed_dirs:
-            logger.error(f"   {path}: {error}")
-    else:
-        logger.info(f"✅ All essential directories created successfully")
-    
-    logger.info(f"📊 Directory creation summary: {len(created_dirs)} created, {len(failed_dirs)} failed")
-    
-    return len(created_dirs), failed_dirs
+    logger.info(f"✅ Created {len(created)} directories")
+    return len(created)
 
-def load_config(mode: str = None):
-    """
-    Load Enhanced San Francisco configuration with GUARANTEED directory creation
-    
-    Args:
-        mode: Analysis mode ('sequential' or 'random')
-    
-    Returns:
-        dict: Complete configuration with all directories created
-    """
-    
-    # Try to detect mode from command line arguments if not provided
-    if mode is None:
-        import sys
-        if '--mode' in sys.argv:
-            mode_idx = sys.argv.index('--mode')
-            if mode_idx + 1 < len(sys.argv):
-                mode = sys.argv[mode_idx + 1]
-            else:
-                mode = "sequential"
-        else:
-            mode = "sequential"
-    
-    logger.info(f"🚀 Loading San Francisco config for {mode} mode")
-    
-    # Get base GMPE configuration
-    try:
-        base_config = load_gmpe_config()
-        logger.debug("✅ Loaded base GMPE configuration")
-    except Exception as e:
-        logger.error(f"❌ Failed to load base GMPE config: {e}")
-        raise
-    
-    # Get the EXACT bounds used for catalog filtering
-    try:
-        region_bounds = get_region_bounds('san_francisco')
-        logger.debug("✅ Loaded regional bounds")
-    except Exception as e:
-        logger.error(f"❌ Failed to load regional bounds: {e}")
-        raise
-    
-    # Generate standardized paths
-    paths = generate_standardized_paths('san_francisco', mode)
-    logger.debug(f"✅ Generated standardized paths for {mode} mode")
-    
-    # CRITICAL: Create ALL directories before proceeding
-    try:
-        created_count, failed_dirs = create_standardized_directories(paths, force_create=True)
-        
-        if failed_dirs:
-            # If essential directories failed, this is a critical error
-            error_msg = f"Failed to create {len(failed_dirs)} essential directories"
-            logger.error(f"❌ {error_msg}")
-            for path, error in failed_dirs:
-                logger.error(f"   {path}: {error}")
-            raise RuntimeError(error_msg)
-        
-        logger.info(f"✅ All {created_count} directories created successfully")
-        
-    except Exception as e:
-        logger.error(f"❌ Critical error in directory creation: {e}")
-        raise
-    
-    # San Francisco specific configuration
-    san_francisco_config = {
-        "region": {
-            "name": "san_francisco",
-            "description": "San Francisco Bay Area using exact polygon + Guaranteed Directories",
-            "polygon": region_bounds["polygon"],
-            "bounds": {
-                "min_lat": region_bounds["min_lat"],
-                "max_lat": region_bounds["max_lat"],
-                "min_lon": region_bounds["min_lon"],
-                "max_lon": region_bounds["max_lon"]
-            },
-            "mode": mode
-        },
-        
-        # STANDARDIZED PATHS (all directories now guaranteed to exist)
-        "paths": paths,
-        
-        "site": {
-            "grid_mode": True,
-            "grid_lat_min": region_bounds["min_lat"],
-            "grid_lat_max": region_bounds["max_lat"],
-            "grid_lon_min": region_bounds["min_lon"],
-            "grid_lon_max": region_bounds["max_lon"],
-            "grid_lat_spacing": 0.1,
-            "grid_lon_spacing": 0.1,
-            "sites": [(37.77, -122.42), (37.8, -122.27)],
-            "vs30": base_config["site_defaults"]["vs30"],
-            "z1p0": base_config["site_defaults"]["z1p0"],
-            "gmpe_model": base_config["site_defaults"]["gmpe_model"],
-            "default_period": base_config["site_defaults"]["default_period"],
-            "include_scatter": base_config["site_defaults"]["include_scatter"],
-            "scatter_std_dev": base_config["site_defaults"]["scatter_std_dev"],
-            "max_distance_km": 300.0
-        },
-
-        "hazard_calculation": {
-            "method": "high_resolution",  # Use C-style method or high_resolution
-        },
-        
-        "output_settings": {
-            "full_output": False,
-            "min_ground_motion": 0.01,
-            "probability_type": "non_exceedance",
-            "probabilities": [[50, 0.98], [50, 0.95], [50, 0.90]],
-            "plot_hazard_curves": True,
-            "max_curves": 20,
-            "export_gis_csv": True,
-            "create_hazard_map": False,
-            "generate_summary_plots": True,
-            "plot_format": "png",
-            "plot_dpi": 300,
-            "plot_style": "seaborn",
-            "color_scheme": "viridis",
-            "save_statistics": True,
-            "compression": "gzip",
-            "precision": 6,
-        },
-        
-        "regional_analysis": {
-            "enabled": False,
-            "multi_window_comparison": True,
-            "statistical_summary": True,
-            "performance_metrics": True,
-            "polygon_filtering": True,
-        },
-        
-        "major_cities": {
-            'San Francisco': (-122.42, 37.77), 
-            'Oakland': (-122.27, 37.8), 
-            'San Jose': (-121.89, 37.34), 
-            'Fremont': (-121.99, 37.55), 
-            'Santa Clara': (-121.96, 37.35), 
-            'Sunnyvale': (-122.04, 37.37), 
-            'Berkeley': (-122.27, 37.87), 
-            'Richmond': (-122.35, 37.94), 
-            'Concord': (-122.03, 37.98), 
-            'Walnut Creek': (-122.07, 37.91)
-        }
-    }
-    
-    # Merge configurations
-    final_config = base_config.copy()
-    final_config.update(san_francisco_config)
-    
-    # Verify critical paths exist
-    critical_paths = ['output_dir', 'viz_dir', 'maps_dir', 'plots_dir', 'gis_dir']
-    for path_key in critical_paths:
-        if path_key in paths:
-            path_value = paths[path_key]
-            if not os.path.exists(path_value):
-                logger.error(f"❌ Critical path does not exist after creation: {path_value}")
-                raise RuntimeError(f"Critical directory missing: {path_value}")
-    
-    logger.info(f"✅ San Francisco configuration loaded successfully for {mode} mode")
-    logger.info(f"📁 Output directory: {paths['output_dir']}")
-    logger.info(f"🎨 Visualizations directory: {paths['viz_dir']}")
-    
-    return final_config
-
-def load_config_for_mode(mode: str):
-    """Load config for specific mode with guaranteed directory creation"""
-    return load_config(mode)
-
-def switch_to_random_mode(config: dict):
-    """Switch configuration to random mode with directory creation"""
-    region_name = config['region']['name']
-    random_paths = generate_standardized_paths(region_name, 'random')
-    
-    # Create directories for random mode
-    created_count, failed_dirs = create_standardized_directories(random_paths, force_create=True)
-    
-    if failed_dirs:
-        logger.error(f"❌ Failed to create directories for random mode: {failed_dirs}")
-        raise RuntimeError("Failed to create random mode directories")
-    
-    config['paths'] = random_paths
-    config['region']['mode'] = 'random'
-    
-    logger.info(f"✅ Switched to random mode with {created_count} directories created")
-    return config
 
 def point_in_polygon(lat, lon, polygon):
     """Check if point is inside polygon using ray casting"""
@@ -354,185 +131,174 @@ def point_in_polygon(lat, lon, polygon):
     
     return inside
 
-def generate_sites_in_polygon(region_name, spacing=0.1):
-    """Generate sites directly within polygon - memory efficient"""
-    bounds = get_region_bounds(region_name)
-    polygon = REGIONAL_POLYGONS[region_name]['region_polygon']
-    
+
+def generate_grid_sites(spacing=0.1):
+    """Generate sites within SF polygon"""
+    bounds = get_region_bounds()
     sites = []
-    total_tested = 0
     
     lat = bounds['min_lat']
     while lat <= bounds['max_lat']:
         lon = bounds['min_lon']
         while lon <= bounds['max_lon']:
-            total_tested += 1
-            if point_in_polygon(lat, lon, polygon):
+            if point_in_polygon(lat, lon, SF_POLYGON):
                 sites.append((lat, lon))
             lon += spacing
         lat += spacing
     
-    efficiency = (len(sites) / total_tested) * 100 if total_tested > 0 else 0
-    
-    print(f"Site generation for {region_name}:")
-    print(f"  Grid spacing: {spacing:.3f}° (~{spacing*111:.1f} km)")
-    print(f"  Total grid points tested: {total_tested}")
-    print(f"  Sites within polygon: {len(sites)}")
-    print(f"  Grid efficiency: {efficiency:.1f}%")
-    
+    logger.info(f"Generated {len(sites)} sites with {spacing}° spacing")
     return sites
 
-def get_optimized_grid_sites(config):
-    """Get grid sites using efficient polygon-aware generation"""
-    if not config['site']['grid_mode']:
-        return config['site']['sites']
-    
-    region_name = config['region']['name']
-    spacing = config['site']['grid_lat_spacing']
-    
-    return generate_sites_in_polygon(region_name, spacing)
 
-def validate_config():
-    """Validate San Francisco configuration with directory checks"""
-    
-    logger.info("🔍 Validating San Francisco configuration...")
-    
-    config = load_config()
-    issues = []
-    warnings = []
-    
-    # Check visualization dependencies
-    try:
-        import matplotlib.pyplot as plt
-        logger.info("✅ Matplotlib available for plotting")
-    except ImportError:
-        issues.append("Matplotlib not available - plotting features will be disabled")
-    
-    # Check polygon
-    if "polygon" not in config["region"]:
-        issues.append("Missing regional polygon definition")
-    else:
-        polygon = config["region"]["polygon"]
-        if len(polygon) < 3:
-            issues.append("Polygon must have at least 3 vertices")
-        logger.info(f"✅ Using EXACT regional polygon with {len(polygon)} vertices")
-    
-    # Check input directories
-    windows_dir = config["paths"]["windows_dir"]
-    if not os.path.exists(windows_dir):
-        warnings.append(f"Windows directory not found: {windows_dir}")
-        logger.warning(f"⚠️  Windows directory not found: {windows_dir}")
-    else:
-        import glob
-        csv_files = glob.glob(os.path.join(windows_dir, "*.csv"))
-        if not csv_files:
-            warnings.append(f"No CSV files found in: {windows_dir}")
-            logger.warning(f"⚠️  No CSV files found in: {windows_dir}")
-        else:
-            logger.info(f"✅ Found {len(csv_files)} window files")
-    
-    # Check output directories (these should all exist now)
-    essential_output_dirs = ['output_dir', 'viz_dir', 'maps_dir', 'plots_dir', 'gis_dir']
-    for dir_key in essential_output_dirs:
-        if dir_key in config['paths']:
-            dir_path = config['paths'][dir_key]
-            if not os.path.exists(dir_path):
-                issues.append(f"Required output directory missing: {dir_path}")
-            else:
-                logger.debug(f"✅ Output directory exists: {dir_path}")
-    
-    # Check GMPE configuration
-    gmpe_config = config["paths"]["gmpe_config"]
-    if not os.path.exists(gmpe_config):
-        issues.append(f"GMPE configuration file not found: {gmpe_config}")
-    else:
-        logger.info(f"✅ GMPE configuration found: {gmpe_config}")
-    
-    # Report results
-    if issues:
-        logger.error("❌ San Francisco configuration validation issues:")
-        for issue in issues:
-            logger.error(f"   • {issue}")
-        return False
-    
-    if warnings:
-        logger.warning("⚠️  San Francisco configuration warnings:")
-        for warning in warnings:
-            logger.warning(f"   • {warning}")
-    
-    logger.info("✅ San Francisco configuration validation passed")
-    return True
+# ============================================================================
+# Main Configuration Function
+# ============================================================================
 
-def test_directory_creation():
-    """Test directory creation functionality"""
+def load_config(mode: str = "sequential"):
+    """
+    Load San Francisco configuration
     
-    logger.info("🧪 Testing directory creation...")
+    Inherits from base config and only overrides SF-specific settings.
     
-    # Test with temporary directory
-    import tempfile
-    import shutil
+    Args:
+        mode: Analysis mode ('sequential' or 'random')
     
-    with tempfile.TemporaryDirectory() as temp_dir:
-        test_paths = generate_standardized_paths('test_region', 'sequential')
-        
-        # Replace base paths with temp directory
-        for key, path in test_paths.items():
-            if isinstance(path, str):
-                test_paths[key] = path.replace('/scratch/olawoyiv/rsqsim_data/output', temp_dir)
-        
-        # Test directory creation
-        created_count, failed_dirs = create_standardized_directories(test_paths)
-        
-        if failed_dirs:
-            logger.error(f"❌ Directory creation test failed: {failed_dirs}")
-            return False
-        
-        # Verify directories exist
-        for key, path in test_paths.items():
-            if 'dir' in key and isinstance(path, str):
-                if not os.path.exists(path):
-                    logger.error(f"❌ Directory not created: {path}")
-                    return False
-        
-        logger.info(f"✅ Directory creation test passed ({created_count} directories)")
-        return True
+    Returns:
+        dict: Complete configuration for san_francisco
+    """
+    logger.info(f"🚀 Loading san_francisco config for {mode} mode")
     
+    # 1. Load base configuration (contains all GMPE settings, defaults, etc.)
+    base_config = load_gmpe_config()
+    logger.debug("✅ Loaded base GMPE configuration")
+    
+    # 2. Get SF-specific data
+    bounds = get_region_bounds()
+    paths = generate_paths(mode)
+    
+    # 3. Create directories
+    create_directories(paths)
+    
+    # 4. Build SF-specific configuration (ONLY overrides)
+    sf_config = {
+        # Regional information
+        "region": {
+            "name": "san_francisco",
+            "pygmm_region": "california",
+            "description": "San Francisco Bay Area",
+            "polygon": SF_POLYGON,
+            "bounds": bounds,
+            "mode": mode,
+            "major_cities": SF_MAJOR_CITIES
+        },
+        
+        # Paths (SF-specific)
+        "paths": paths,
+        
+        # Site configuration (SF-specific overrides)
+        "site": {
+            "grid_mode": True,
+            "grid_lat_min": bounds["min_lat"],
+            "grid_lat_max": bounds["max_lat"],
+            "grid_lon_min": bounds["min_lon"],
+            "grid_lon_max": bounds["max_lon"],
+            "grid_lat_spacing": 0.1,
+            "grid_lon_spacing": 0.1,
+            "sites": SF_EXAMPLE_SITES,
+            "max_distance_km": 300.0,
+            # Inherit vs30, z1p0, scatter settings from base config
+            **{k: v for k, v in base_config["site_defaults"].items() 
+               if k in ["vs30", "z1p0", "z2p5", "include_scatter", "scatter_std_dev"]}
+        },
+        
+        "gmpe": {
+            # Choose one of the options below:
+            
+            # OPTION 1: NSHM 2023 Standard (recommended)
+            "use_openquake": False,
+            "use_ensemble": True,
+            "models": ["ASK14", "BSSA14", "CB14", "CY14"],
+            "ensemble_weights": {
+                "ASK14": 0.25,
+                "BSSA14": 0.25,
+                "CB14": 0.25,
+                "CY14": 0.25
+            },
+            
+            # OPTION 2: Custom 2-model ensemble (uncomment to use)
+            # "use_ensemble": True,
+            # "models": ["CB14", "ASK14"],
+            # "ensemble_weights": {
+            #     "CB14": 0.6,
+            #     "ASK14": 0.4
+            # },
+            
+            # OPTION 3: Single model only (uncomment to use)
+            # "use_ensemble": False,
+            # "models": ["CB14"],
+            # "ensemble_weights": {
+            #     "CB14": 1.0
+            # },
+            
+            # Common settings
+            "default_model": "CB14",
+            "mechanism": "strike-slip",
+        },
+        
+        # Regional analysis (SF-specific)
+        "regional_analysis": {
+            "enabled": True,
+            "multi_window_comparison": True,
+            "statistical_summary": True,
+            "polygon_filtering": True
+        },
+        
+        # Performance (SF-specific if different from base)
+        "resource_limits": {
+            "max_memory_gb": 16,
+            "batch_size": 50,
+            "max_events_per_site": 20000
+        }
+    }
+    
+    # 5. Merge configurations (base + SF overrides)
+    final_config = {**base_config, **sf_config}
+    
+     # 6. Quick validation
+    if not os.path.exists(paths["windows_dir"]):
+        logger.warning(f"⚠️  Windows directory not found: {paths['windows_dir']}")
+    else:
+        csv_files = glob.glob(os.path.join(paths["windows_dir"], "*.csv"))
+        logger.info(f"✅ Found {len(csv_files)} window files")
+    
+    # 7. Log GMPE configuration
+    gmpe_cfg = final_config.get('gmpe', {})
+    if gmpe_cfg.get('use_ensemble'):
+        logger.info(f"📊 Using ensemble: {gmpe_cfg.get('models')}")
+        logger.info(f"   Weights: {gmpe_cfg.get('ensemble_weights')}")
+    else:
+        logger.info(f"📊 Using single model: {gmpe_cfg.get('default_model')}")
+    
+    logger.info(f"✅ San Francisco configuration loaded for {mode} mode")
+    return final_config
+
+# ============================================================================
+# Testing
+# ============================================================================
+
 if __name__ == "__main__":
-    # Setup logging for testing
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
     
-    print("Enhanced San Francisco Configuration with Directory Creation")
-    print("=" * 80)
+    print("san_francisco Configuration")
+    print("=" * 60)
     
-    # Test directory creation
-    print("\n1. Testing directory creation functionality...")
-    test_success = test_directory_creation()
+    # Test loading
+    config = load_config("sequential")
     
-    # Load and validate configuration
-    print("\n2. Loading and validating configuration...")
-    try:
-        config = load_config()
-        is_valid = validate_config()
-        
-        print(f"\n📊 Configuration Results:")
-        print(f"   Directory creation test: {'✅ PASSED' if test_success else '❌ FAILED'}")
-        print(f"   Configuration validation: {'✅ PASSED' if is_valid else '❌ FAILED'}")
-        print(f"   Region: {config['region']['name']}")
-        print(f"   Mode: {config['region']['mode']}")
-        print(f"   Visualizations enabled: {config['output_settings']['plot_hazard_curves']}")
-        print(f"   Output directory: {config['paths']['output_dir']}")
-        
-        if test_success and is_valid:
-            print(f"\n🚀 READY TO RUN:")
-            print(f"   ./scripts/run_on_cluster.sh san_francisco sequential")
-            print(f"   ./scripts/run_on_cluster.sh san_francisco random")
-            print(f"\n📁 Results will be saved to:")
-            print(f"   {config['paths']['output_dir']}")
-        else:
-            print(f"\n❌ Fix issues before running simulation")
-            
-    except Exception as e:
-        print(f"\n❌ Configuration loading failed: {e}")
-        import traceback
-        traceback.print_exc()
-        
+    print(f"\n✅ Configuration loaded successfully:")
+    print(f"   Region: {config['region']['name']}")
+    print(f"   Mode: {config['region']['mode']}")
+    print(f"   GMPE Model: {config['default_model']}")  # Inherited from base
+    print(f"   Output: {config['paths']['output_dir']}")
+    print(f"   Grid sites: {len(generate_grid_sites(0.1))}")
+

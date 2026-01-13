@@ -44,7 +44,9 @@ LA_MAJOR_CITIES = {
 # Example sites (if not using grid)
 LA_EXAMPLE_SITES = [
     (34.1092, -118.3255),  # Downtown LA
-    (34.1257, -118.1036)   # Pasadena
+    (34.1257, -118.1036),   # Pasadena
+    (34.05, -118.25),    # Los Angeles
+    (33.77, -118.19)    # Long Beach
 ]
 
 LA_MAJOR_CITIES_SECOND = [
@@ -221,7 +223,7 @@ def load_config(mode: str = "sequential"):
             "grid_lon_max": bounds["max_lon"],
             "grid_lat_spacing": 0.1,
             "grid_lon_spacing": 0.1,
-            "sites": LA_MAJOR_CITIES_SECOND,
+            "sites": LA_EXAMPLE_SITES,
             "max_distance_km": 300.0,
             # Inherit vs30, z1p0, scatter settings from base config
             **{k: v for k, v in base_config["site_defaults"].items() 
@@ -232,6 +234,7 @@ def load_config(mode: str = "sequential"):
             # Choose one of the options below:
             
             # OPTION 1: NSHM 2023 Standard (recommended)
+            "use_openquake": False,
             "use_ensemble": True,
             "models": ["ASK14", "BSSA14", "CB14", "CY14"],
             "ensemble_weights": {
